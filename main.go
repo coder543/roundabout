@@ -8,9 +8,9 @@ import (
 
 	"github.com/jackc/pgproto3/v2"
 
-	"github.com/zeropascals/roundabout/backend"
-	"github.com/zeropascals/roundabout/config"
-	"github.com/zeropascals/roundabout/frontend"
+	"github.com/coder543/roundabout/backend"
+	"github.com/coder543/roundabout/config"
+	"github.com/coder543/roundabout/frontend"
 )
 
 func main() {

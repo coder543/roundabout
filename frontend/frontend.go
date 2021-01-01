@@ -14,9 +14,9 @@ import (
 
 	"github.com/jackc/pgproto3/v2"
 
-	"github.com/zeropascals/roundabout/config"
-	"github.com/zeropascals/roundabout/frontend/receiver"
-	"github.com/zeropascals/roundabout/misc"
+	"github.com/coder543/roundabout/config"
+	"github.com/coder543/roundabout/frontend/receiver"
+	"github.com/coder543/roundabout/misc"
 )
 
 const defaultApplicationName = "roundabout"
