@@ -4,6 +4,7 @@ package sender
 
 import (
 	"log"
+	"time"
 
 	"github.com/jackc/pgproto3/v2"
 
@@ -47,11 +48,17 @@ func sender(
 		// log.Println("f-msg-2", misc.Marshal(fmsg))
 		err := send(fmsg)
 		if err != nil {
-			if misc.IsTemporary(err) {
-				continue
+			// retry loop on temporary failure
+			for i := 0; i < 10 && err != nil && misc.IsTemporary(err); i++ {
+				time.Sleep(25 * time.Millisecond)
+				err = send(fmsg)
 			}
-			log.Println("f-send", err)
-			return
+
+			// did retry fail?
+			if err != nil {
+				log.Println("f-send", err)
+				return
+			}
 		}
 	}
 }

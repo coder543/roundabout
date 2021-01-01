@@ -4,6 +4,7 @@ package sender
 
 import (
 	"log"
+	"time"
 
 	"github.com/coder543/roundabout/frontend"
 	"github.com/coder543/roundabout/misc"
@@ -61,7 +62,8 @@ func sender(
 			return
 		case newRec := <-newDB: // switch postgres connections
 			if dbSync != nil {
-				dbSync.SignalLocked()
+				log.Println("received unexpected new database connection")
+				return // kill this client connection, since we don't understand the current state
 			}
 			dbSync = newRec.OutSync
 			dbRec = newRec.Out
@@ -109,15 +111,22 @@ func sender(
 		// log.Println("b-msg-1", misc.Marshal(bmsg))
 
 		err := send(bmsg)
+		if err != nil {
+			// retry loop on temporary failure
+			for i := 0; i < 10 && err != nil && misc.IsTemporary(err); i++ {
+				time.Sleep(25 * time.Millisecond)
+				err = send(bmsg)
+			}
+
+			// did retry fail?
+			if err != nil {
+				log.Println("b-send", err)
+				return
+			}
+		}
+
 		if dbSync != nil {
 			dbSync.SignalLocked()
-		}
-		if err != nil {
-			if misc.IsTemporary(err) {
-				continue
-			}
-			log.Println("b-send", err)
-			return
 		}
 	}
 }
