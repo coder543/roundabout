@@ -11,7 +11,7 @@ import (
 func Launch(
 	closed chan struct{},
 	closeFrontend func(),
-	sendToBackend func(message pgproto3.BackendMessage, syncCond *misc.Cond),
+	sendToBackend func(message pgproto3.BackendMessage),
 	preamble []pgproto3.BackendMessage,
 ) chan (chan<- struct{}) {
 
@@ -32,22 +32,19 @@ func preambler(
 	reqPreamble chan (chan<- struct{}),
 	closed chan struct{},
 	closeFrontend func(),
-	sendToBackend func(message pgproto3.BackendMessage, syncCond *misc.Cond),
+	sendToBackend func(message pgproto3.BackendMessage),
 	preamble []pgproto3.BackendMessage,
 ) {
 	defer misc.Recover()
 	defer closeFrontend()
 
-	syncCond := misc.NewCond()
 	for {
 		select {
 		case <-closed:
 			return
 		case req := <-reqPreamble:
 			for _, msg := range preamble {
-				syncCond.L.Lock()
-				sendToBackend(msg, syncCond)
-				syncCond.WaitAndUnlock()
+				sendToBackend(msg)
 			}
 			close(req)
 		}

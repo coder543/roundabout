@@ -37,7 +37,7 @@ type Receiver struct {
 	closed        chan struct{}
 	closeFrontend func()
 	receive       func() (pgproto3.BackendMessage, error)
-	forwarderChan chan forwarderMsg
+	forwarderChan chan pgproto3.BackendMessage
 
 	dropRFQ     bool
 	dropRFQChan chan struct{}
@@ -55,7 +55,7 @@ func Launch(
 	r := &Receiver{
 		NewOut:        newOut,
 		newOut:        newOut,
-		forwarderChan: make(chan forwarderMsg, 1),
+		forwarderChan: make(chan pgproto3.BackendMessage, 1),
 		dropRFQChan:   unblockedChannel,
 		dropRFQLock:   new(sync.Mutex),
 		closeFrontend: closeFrontend,
@@ -69,11 +69,6 @@ func Launch(
 	return r
 }
 
-type forwarderMsg struct {
-	msg      pgproto3.BackendMessage
-	syncCond *misc.Cond
-}
-
 func (r *Receiver) forwarder() {
 	defer misc.Recover()
 	defer r.closeFrontend()
@@ -81,36 +76,24 @@ func (r *Receiver) forwarder() {
 		if r.out != nil {
 			close(r.out)
 		}
+		r.outSync.SignalLocked()
 	}()
 
 	for {
-		var outerSync *misc.Cond
-
 		select {
-		case wrapper, ok := <-r.forwarderChan:
+		case msg, ok := <-r.forwarderChan:
 			if !ok {
 				return
 			}
 
-			outerSync = wrapper.syncCond
-
 			if r.out == nil {
-				log.Println("client detached unexpectedly. cannot send message to client!", misc.Marshal(wrapper.msg))
-				if outerSync != nil {
-					outerSync.SignalLocked()
-				}
+				log.Println("client detached unexpectedly. cannot send message to client!", misc.Marshal(msg))
 				return
 			}
 
-			r.outSync.L.Lock()
 			select {
-			case r.out <- wrapper.msg:
-				r.outSync.WaitAndUnlock()
-				if outerSync != nil {
-					outerSync.SignalLocked()
-				}
+			case r.out <- msg:
 			case <-r.detaching:
-				r.outSync.L.Unlock()
 				goto detaching
 			}
 
@@ -134,12 +117,10 @@ func (r *Receiver) forwarder() {
 		continue
 
 	detaching:
-		if outerSync != nil {
-			outerSync.SignalLocked()
-		}
 		if r.out != nil {
 			close(r.out)
 		}
+		r.outSync.SignalLocked()
 		r.out = nil
 		r.outSync = nil
 		r.detaching = nil
@@ -150,8 +131,6 @@ func (r *Receiver) receiver() {
 	defer misc.Recover()
 	defer r.closeFrontend()
 	defer close(r.forwarderChan)
-
-	syncCond := misc.NewCond()
 
 	for {
 		bmsg, err := r.receive()
@@ -170,21 +149,20 @@ func (r *Receiver) receiver() {
 		}
 
 		// log.Println("f-msg-1", misc.Marshal(bmsg))
-		syncCond.L.Lock()
+		r.outSync.L.Lock()
 		select {
-		case r.forwarderChan <- forwarderMsg{msg: bmsg, syncCond: syncCond}:
-			syncCond.WaitAndUnlock()
+		case r.forwarderChan <- bmsg:
+			r.outSync.WaitAndUnlock()
 		case <-r.closed:
 			return
 		}
 	}
 }
 
-func (r *Receiver) Send(bmsg pgproto3.BackendMessage, syncCond *misc.Cond) {
-	r.forwarderChan <- forwarderMsg{
-		msg:      bmsg,
-		syncCond: syncCond,
-	}
+func (r *Receiver) Send(bmsg pgproto3.BackendMessage) {
+	r.outSync.L.Lock()
+	r.forwarderChan <- bmsg
+	r.outSync.WaitAndUnlock()
 }
 
 // when proxying application_name, we will get an RFQ that the
