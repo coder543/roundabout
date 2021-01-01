@@ -3,8 +3,6 @@
 package preambler
 
 import (
-	"sync"
-
 	"github.com/jackc/pgproto3/v2"
 
 	"github.com/zeropascals/roundabout/misc"
@@ -13,7 +11,7 @@ import (
 func Launch(
 	closed chan struct{},
 	closeFrontend func(),
-	sendToBackend func(message pgproto3.BackendMessage, syncCond *sync.Cond),
+	sendToBackend func(message pgproto3.BackendMessage, syncCond *misc.Cond),
 	preamble []pgproto3.BackendMessage,
 ) chan (chan<- struct{}) {
 
@@ -34,23 +32,22 @@ func preambler(
 	reqPreamble chan (chan<- struct{}),
 	closed chan struct{},
 	closeFrontend func(),
-	sendToBackend func(message pgproto3.BackendMessage, syncCond *sync.Cond),
+	sendToBackend func(message pgproto3.BackendMessage, syncCond *misc.Cond),
 	preamble []pgproto3.BackendMessage,
 ) {
 	defer misc.Recover()
 	defer closeFrontend()
 
+	syncCond := misc.NewCond()
 	for {
 		select {
 		case <-closed:
 			return
 		case req := <-reqPreamble:
 			for _, msg := range preamble {
-				syncCond := &sync.Cond{L: &sync.Mutex{}}
-				sendToBackend(msg, syncCond)
 				syncCond.L.Lock()
-				syncCond.Wait()
-				syncCond.L.Unlock()
+				sendToBackend(msg, syncCond)
+				syncCond.WaitAndUnlock()
 			}
 			close(req)
 		}

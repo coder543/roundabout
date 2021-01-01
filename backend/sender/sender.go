@@ -4,7 +4,6 @@ package sender
 
 import (
 	"log"
-	"sync"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/zeropascals/roundabout/frontend"
@@ -46,11 +45,11 @@ func sender(
 	defer closeBackend()
 
 	dbRec := silentChannel
-	var dbSync *sync.Cond
+	var dbSync *misc.Cond
 
 	defer func() {
 		if dbSync != nil {
-			dbSync.Signal()
+			dbSync.SignalLocked()
 		}
 	}()
 
@@ -62,7 +61,7 @@ func sender(
 			return
 		case newRec := <-newDB: // switch postgres connections
 			if dbSync != nil {
-				dbSync.Signal()
+				dbSync.SignalLocked()
 			}
 			dbSync = newRec.OutSync
 			dbRec = newRec.Out
@@ -88,7 +87,16 @@ func sender(
 			bmsg = &rfqCopy
 
 			if dbSync != nil {
-				dbSync.Signal()
+				// There may exist a pathological case where Postgres could send a message
+				// immediately after a client being initialized receives the post-preamble RFQ.
+				// In this specific case, the frontend.receiver would be waiting to send the
+				// message through the channel, and dbSync.L would be locked. SignalLocked()
+				// might create a deadlock if that happened, so instead we could spawn this
+				// into a separate goroutine here.
+				//
+				// The code as written should prevent this deadlock, but if a deadlock appears...
+				// this is the first place to check.
+				dbSync.SignalLocked()
 			}
 
 			// the backend manager decides whether detaching is successful or not
@@ -102,7 +110,7 @@ func sender(
 
 		err := send(bmsg)
 		if dbSync != nil {
-			dbSync.Signal()
+			dbSync.SignalLocked()
 		}
 		if err != nil {
 			if misc.IsTemporary(err) {

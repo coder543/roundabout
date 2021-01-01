@@ -16,6 +16,7 @@ import (
 
 	"github.com/zeropascals/roundabout/config"
 	"github.com/zeropascals/roundabout/frontend/receiver"
+	"github.com/zeropascals/roundabout/misc"
 )
 
 const defaultApplicationName = "roundabout"
@@ -106,7 +107,7 @@ func (c *FConn) ClearApplicationName() {
 
 type AttachChannels struct {
 	Out     <-chan pgproto3.BackendMessage
-	OutSync *sync.Cond
+	OutSync *misc.Cond
 }
 
 func (c *FConn) AttachBackend(terminator func()) AttachChannels {
@@ -115,9 +116,9 @@ func (c *FConn) AttachBackend(terminator func()) AttachChannels {
 
 	c.backendTerminator = terminator
 
-	out := make(chan pgproto3.BackendMessage, 1)
-	outSync := &sync.Cond{L: &sync.Mutex{}}
 	c.detaching = make(chan struct{})
+	out := make(chan pgproto3.BackendMessage, 1)
+	outSync := misc.NewCond()
 
 	outSync.L.Lock()
 	c.receiver.NewOut <- receiver.NewOutChans{
@@ -125,9 +126,7 @@ func (c *FConn) AttachBackend(terminator func()) AttachChannels {
 		OutSync:   outSync,
 		Detaching: c.detaching,
 	}
-
-	outSync.Wait()
-	outSync.L.Unlock()
+	outSync.WaitAndUnlock()
 
 	return AttachChannels{
 		Out:     out,
