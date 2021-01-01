@@ -190,7 +190,7 @@ func (r *Receiver) SetDropRFQ(val bool) {
 	r.dropRFQLock.Lock()
 	defer r.dropRFQLock.Unlock()
 	if r.dropRFQ == val {
-		if val {
+		if !val {
 			log.Println("Error: attempted to SetDropRFQ(false) when it was already false.")
 			r.closeFrontend()
 			return
