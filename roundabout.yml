@@ -1,0 +1,42 @@
+
+# this section sets the behavior of archivist that
+# clients will see, as if archivist were any normal
+# postgres server.
+virtual:
+  listen: "localhost:5432"
+  username: postgres
+  password: abc123
+  database: virtualpg
+
+  # this will set the application_name each time a
+  # connection is pulled out of the pool, if and only
+  # if the application provided an application_name
+  # and the application_name is different from the
+  # name that Postgres has already been given for
+  # the connection that was pulled out of the pool.
+  proxy_application_names: true
+
+  # this will reset the application_name for each
+  # database connection to "archivist" as it gets
+  # put back into the connection pool.
+  clear_application_names: true
+
+# this section tells archivist about the postgres
+# database that it can connect to.
+database:
+  # just a general name for the database
+  database_name: pg1
+
+  # the address of the database
+  address: "pg1:5432"
+
+  # database credentials
+  username: postgres
+  password: password
+
+  # the name of the postgres database to use
+  database: postgres
+
+  # number of connections to be established
+  num_conns: 25
+
