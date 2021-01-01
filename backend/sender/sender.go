@@ -14,7 +14,7 @@ var silentChannel = make(<-chan pgproto3.BackendMessage, 1)
 
 func Launch(
 	closeBackend func(),
-	detachDB func() bool,
+	detachDB func(txStatus byte) bool,
 	send func(msg pgproto3.BackendMessage) error,
 	closed <-chan struct{},
 	newDB <-chan frontend.AttachChannels,
@@ -35,7 +35,7 @@ func Launch(
 
 func sender(
 	closeBackend func(),
-	detachDB func() bool,
+	detachDB func(txStatus byte) bool,
 	send func(msg pgproto3.BackendMessage) error,
 	closed <-chan struct{},
 	newDB <-chan frontend.AttachChannels,
@@ -100,7 +100,7 @@ func sender(
 			}
 
 			// the backend manager decides whether detaching is successful or not
-			if detachDB() {
+			if detachDB(rfq.TxStatus) {
 				dbRec = silentChannel
 				dbSync = nil
 			}

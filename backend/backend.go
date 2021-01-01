@@ -38,7 +38,7 @@ type BConn struct {
 	db                    *frontend.FConn
 	txStatus              byte
 	tempPreparedStatement bool
-	pendingResponse       int
+	pendingResponse       bool
 
 	// fields only accessed from backendRunner goroutine
 	in    <-chan pgproto3.FrontendMessage
@@ -78,8 +78,7 @@ func (c *BConn) close() {
 	defer c.dbLock.Unlock()
 	if c.db != nil {
 
-		c.pendingResponse--
-		if c.pendingResponse > 0 {
+		if c.pendingResponse {
 			c.db.BackendTerminated()
 			c.db = nil
 			return
@@ -100,9 +99,11 @@ func (c *BConn) close() {
 
 // senderDetachDB is used by the sender to cleanly return a DB connection to the pool
 // when it is no longer needed
-func (c *BConn) senderDetachDB() bool {
+func (c *BConn) senderDetachDB(txStatus byte) bool {
 	c.dbLock.Lock()
 	defer c.dbLock.Unlock()
+
+	c.txStatus = txStatus
 
 	// we can only detach when we're not in a transaction,
 	// and if there is a database attached
@@ -110,10 +111,7 @@ func (c *BConn) senderDetachDB() bool {
 		return false
 	}
 
-	c.pendingResponse--
-	if c.pendingResponse > 0 {
-		return false
-	}
+	c.pendingResponse = false
 
 	// we also can't detach during an anonymous prepared statement
 	if c.tempPreparedStatement {
@@ -298,16 +296,15 @@ func (c *BConn) waitForCmd() bool {
 	}
 
 	// TODO: read replica support here
-	c.db = frontend.WritePool.Pop()
-	c.newDB <- c.db.AttachBackend(c.terminate)
-	if config.Virtual.ProxyApplicationNames && c.applicationName != "" {
-		c.db.SetApplicationName(c.applicationName)
+	if c.db == nil {
+		c.db = frontend.WritePool.Pop()
+		c.newDB <- c.db.AttachBackend(c.terminate)
+		if config.Virtual.ProxyApplicationNames && c.applicationName != "" {
+			c.db.SetApplicationName(c.applicationName)
+		}
 	}
 
-	c.pendingResponse++
-	if c.pendingResponse > 1 {
-		log.Printf("pending response: %d\n%s", c.pendingResponse, misc.Marshal(fmsg))
-	}
+	c.pendingResponse = true
 	c.db.In <- fmsg
 
 	return true
