@@ -233,12 +233,9 @@ func (c *BConn) backendRunner(
 	frontend.GlobalPreambleLock.RUnlock()
 
 	// send out the local preamble from one connection
-	// error: doing it this way causes a db sync against
-	// a virtual rfq, which results in the sync blocking
-	//
-	// c.db = frontend.WritePool.Pop()
-	// c.newDB <- c.db.AttachBackend(c.terminate)
-	// c.db.ReqPreamble()
+	c.db = frontend.WritePool.Pop()
+	c.newDB <- c.db.AttachBackend(c.terminate)
+	c.db.ReqPreamble()
 
 	c.rfq()
 

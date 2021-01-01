@@ -106,7 +106,7 @@ func (c *FConn) ClearApplicationName() {
 
 type AttachChannels struct {
 	Out     <-chan pgproto3.BackendMessage
-	OutSync chan<- struct{}
+	OutSync *sync.Cond
 }
 
 func (c *FConn) AttachBackend(terminator func()) AttachChannels {
@@ -116,20 +116,18 @@ func (c *FConn) AttachBackend(terminator func()) AttachChannels {
 	c.backendTerminator = terminator
 
 	out := make(chan pgproto3.BackendMessage, 1)
-	outSync := make(chan struct{}, 1)
+	outSync := &sync.Cond{L: &sync.Mutex{}}
 	c.detaching = make(chan struct{})
 
+	outSync.L.Lock()
 	c.receiver.NewOut <- receiver.NewOutChans{
 		Out:       out,
 		OutSync:   outSync,
 		Detaching: c.detaching,
 	}
 
-	// ensure that the frontend receiver is attached before anything else happens
-	select {
-	case <-outSync:
-	case <-c.closed:
-	}
+	outSync.Wait()
+	outSync.L.Unlock()
 
 	return AttachChannels{
 		Out:     out,

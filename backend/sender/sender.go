@@ -4,6 +4,7 @@ package sender
 
 import (
 	"log"
+	"sync"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/zeropascals/roundabout/frontend"
@@ -45,11 +46,11 @@ func sender(
 	defer closeBackend()
 
 	dbRec := silentChannel
-	var dbSync chan<- struct{}
+	var dbSync *sync.Cond
 
 	defer func() {
 		if dbSync != nil {
-			close(dbSync)
+			dbSync.Signal()
 		}
 	}()
 
@@ -61,7 +62,7 @@ func sender(
 			return
 		case newRec := <-newDB: // switch postgres connections
 			if dbSync != nil {
-				close(dbSync)
+				dbSync.Signal()
 			}
 			dbSync = newRec.OutSync
 			dbRec = newRec.Out
@@ -87,7 +88,7 @@ func sender(
 			bmsg = &rfqCopy
 
 			if dbSync != nil {
-				dbSync <- struct{}{}
+				dbSync.Signal()
 			}
 
 			// the backend manager decides whether detaching is successful or not
@@ -97,24 +98,18 @@ func sender(
 			}
 		}
 
-		cleanup := func() {
-			if dbSync != nil {
-				dbSync <- struct{}{}
-			}
-		}
-
 		// log.Println("b-msg-1", misc.Marshal(bmsg))
 
 		err := send(bmsg)
+		if dbSync != nil {
+			dbSync.Signal()
+		}
 		if err != nil {
-			cleanup()
 			if misc.IsTemporary(err) {
 				continue
 			}
 			log.Println("b-send", err)
 			return
 		}
-
-		cleanup()
 	}
 }

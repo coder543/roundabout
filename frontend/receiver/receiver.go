@@ -22,7 +22,7 @@ var unblockedChannel = func() chan struct{} {
 
 type NewOutChans struct {
 	Out       chan pgproto3.BackendMessage
-	OutSync   chan struct{}
+	OutSync   *sync.Cond
 	Detaching chan struct{}
 }
 
@@ -31,7 +31,7 @@ type Receiver struct {
 
 	newOut    <-chan NewOutChans
 	out       chan pgproto3.BackendMessage
-	outSync   chan struct{}
+	outSync   *sync.Cond
 	detaching chan struct{}
 
 	closed        chan struct{}
@@ -70,8 +70,8 @@ func Launch(
 }
 
 type forwarderMsg struct {
-	msg  pgproto3.BackendMessage
-	sync chan<- struct{}
+	msg      pgproto3.BackendMessage
+	syncCond *sync.Cond
 }
 
 func (r *Receiver) forwarder() {
@@ -84,7 +84,7 @@ func (r *Receiver) forwarder() {
 	}()
 
 	for {
-		var outerSync chan<- struct{}
+		var outerSync *sync.Cond
 
 		select {
 		case wrapper, ok := <-r.forwarderChan:
@@ -92,25 +92,23 @@ func (r *Receiver) forwarder() {
 				return
 			}
 
-			outerSync = wrapper.sync
+			outerSync = wrapper.syncCond
 
 			if r.out == nil {
 				log.Println("client detached unexpectedly. cannot send message to client!", misc.Marshal(wrapper.msg))
 				if outerSync != nil {
-					outerSync <- struct{}{}
+					outerSync.Signal()
 				}
 				return
 			}
 
 			select {
 			case r.out <- wrapper.msg:
-				select {
-				case <-r.outSync:
-					if outerSync != nil {
-						outerSync <- struct{}{}
-					}
-				case <-r.detaching:
-					goto detaching
+				r.outSync.L.Lock()
+				r.outSync.Wait()
+				r.outSync.L.Unlock()
+				if outerSync != nil {
+					outerSync.Signal()
 				}
 			case <-r.detaching:
 				goto detaching
@@ -124,7 +122,9 @@ func (r *Receiver) forwarder() {
 			r.outSync = newChan.OutSync
 			r.detaching = newChan.Detaching
 
-			r.outSync <- struct{}{}
+			r.outSync.L.Lock()
+			r.outSync.Signal()
+			r.outSync.L.Unlock()
 
 		case <-r.detaching:
 			goto detaching
@@ -137,7 +137,7 @@ func (r *Receiver) forwarder() {
 
 	detaching:
 		if outerSync != nil {
-			outerSync <- struct{}{}
+			outerSync.Signal()
 		}
 		if r.out != nil {
 			close(r.out)
@@ -153,7 +153,7 @@ func (r *Receiver) receiver() {
 	defer r.closeFrontend()
 	defer close(r.forwarderChan)
 
-	syncChan := make(chan struct{}, 1)
+	syncCond := &sync.Cond{L: &sync.Mutex{}}
 
 	for {
 		bmsg, err := r.receive()
@@ -173,17 +173,20 @@ func (r *Receiver) receiver() {
 
 		// log.Println("f-msg-1", misc.Marshal(bmsg))
 		select {
-		case r.forwarderChan <- forwarderMsg{msg: bmsg, sync: syncChan}:
-			<-syncChan
+		case r.forwarderChan <- forwarderMsg{msg: bmsg, syncCond: syncCond}:
+			syncCond.L.Lock()
+			syncCond.Wait()
+			syncCond.L.Unlock()
 		case <-r.closed:
 			return
 		}
 	}
 }
 
-func (r *Receiver) Send(bmsg pgproto3.BackendMessage) {
+func (r *Receiver) Send(bmsg pgproto3.BackendMessage, syncCond *sync.Cond) {
 	r.forwarderChan <- forwarderMsg{
-		msg: bmsg,
+		msg:      bmsg,
+		syncCond: syncCond,
 	}
 }
 
