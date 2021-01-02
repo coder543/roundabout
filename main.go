@@ -14,6 +14,7 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	frontend.LaunchAll()
 
 	// launch debug pprof server

@@ -36,7 +36,7 @@ func receiver(
 			if misc.IsTemporary(err) {
 				continue
 			}
-			if err.Error() != "EOF" {
+			if !misc.SocketClosedError(err) {
 				log.Println("b-receive", err)
 			}
 			return

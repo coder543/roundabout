@@ -2,7 +2,9 @@ package misc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 )
@@ -28,4 +30,10 @@ func IsTemporary(err error) bool {
 		return err.Temporary()
 	}
 	return false
+}
+
+func SocketClosedError(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrClosedPipe) ||
+		errors.Is(err, net.ErrClosed)
 }
