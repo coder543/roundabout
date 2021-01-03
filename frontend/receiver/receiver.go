@@ -30,6 +30,7 @@ type Receiver struct {
 	NewOut chan<- NewOutChans
 
 	newOut    <-chan NewOutChans
+	outLock   *sync.RWMutex
 	out       chan pgproto3.BackendMessage
 	outSync   *misc.Cond
 	detaching chan struct{}
@@ -37,7 +38,6 @@ type Receiver struct {
 	closed        chan struct{}
 	closeFrontend func()
 	receive       func() (pgproto3.BackendMessage, error)
-	forwarderChan chan pgproto3.BackendMessage
 
 	dropRFQ     bool
 	dropRFQChan chan struct{}
@@ -55,7 +55,7 @@ func Launch(
 	r := &Receiver{
 		NewOut:        newOut,
 		newOut:        newOut,
-		forwarderChan: make(chan pgproto3.BackendMessage, 1),
+		outLock:       &sync.RWMutex{},
 		dropRFQChan:   unblockedChannel,
 		dropRFQLock:   new(sync.Mutex),
 		closeFrontend: closeFrontend,
@@ -63,41 +63,31 @@ func Launch(
 		receive:       receive,
 	}
 
-	go r.forwarder()
+	go r.outManager()
 	go r.receiver()
 
 	return r
 }
 
-func (r *Receiver) forwarder() {
+func (r *Receiver) outManager() {
 	defer misc.Recover()
 	defer r.closeFrontend()
 	defer func() {
+		r.outLock.Lock()
+		defer r.outLock.Unlock()
 		if r.out != nil {
 			close(r.out)
 		}
 		r.outSync.SignalLocked()
+		r.out = nil
+		r.outSync = nil
+		r.detaching = nil
 	}()
 
 	for {
 		select {
-		case msg, ok := <-r.forwarderChan:
-			if !ok {
-				return
-			}
-
-			if r.out == nil {
-				log.Println("client detached unexpectedly. cannot send message to client!", misc.Marshal(msg))
-				return
-			}
-
-			select {
-			case r.out <- msg:
-			case <-r.detaching:
-				goto detaching
-			}
-
 		case newChan := <-r.newOut:
+			r.outLock.Lock()
 			if r.out != nil {
 				close(r.out)
 			}
@@ -106,31 +96,28 @@ func (r *Receiver) forwarder() {
 			r.detaching = newChan.Detaching
 
 			r.outSync.SignalLocked()
+			r.outLock.Unlock()
 
 		case <-r.detaching:
-			goto detaching
+			r.outLock.Lock()
+			if r.out != nil {
+				close(r.out)
+			}
+			r.outSync.SignalLocked()
+			r.out = nil
+			r.outSync = nil
+			r.detaching = nil
+			r.outLock.Unlock()
 
 		case <-r.closed:
 			return
 		}
-
-		continue
-
-	detaching:
-		if r.out != nil {
-			close(r.out)
-		}
-		r.outSync.SignalLocked()
-		r.out = nil
-		r.outSync = nil
-		r.detaching = nil
 	}
 }
 
 func (r *Receiver) receiver() {
 	defer misc.Recover()
 	defer r.closeFrontend()
-	defer close(r.forwarderChan)
 
 	for {
 		bmsg, err := r.receive()
@@ -148,21 +135,32 @@ func (r *Receiver) receiver() {
 			continue
 		}
 
-		// log.Println("f-msg-1", misc.Marshal(bmsg))
-		r.outSync.L.Lock()
-		select {
-		case r.forwarderChan <- bmsg:
-			r.outSync.WaitAndUnlock()
-		case <-r.closed:
+		closed := r.Send(bmsg)
+		if closed {
 			return
 		}
 	}
 }
 
-func (r *Receiver) Send(bmsg pgproto3.BackendMessage) {
+func (r *Receiver) Send(bmsg pgproto3.BackendMessage) bool {
+	r.outLock.RLock()
+	defer r.outLock.RUnlock()
+
+	if r.out == nil {
+		log.Println("client detached unexpectedly. cannot send message to client!", misc.Marshal(bmsg))
+		return true
+	}
+
+	// log.Println("f-msg-1", misc.Marshal(bmsg))
 	r.outSync.L.Lock()
-	r.forwarderChan <- bmsg
-	r.outSync.WaitAndUnlock()
+	select {
+	case r.out <- bmsg:
+		r.outSync.WaitAndUnlock()
+	case <-r.closed:
+		return true
+	}
+
+	return false
 }
 
 // when proxying application_name, we will get an RFQ that the
