@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"runtime"
 
 	"github.com/jackc/pgproto3/v2"
 
@@ -14,6 +16,16 @@ import (
 )
 
 func main() {
+	// Performance testing has shown almost a +70% performance boost
+	// for roundabout just by limiting GOMAXPROCS to 1.
+	//
+	// It is possible that it will perform better with more procs in
+	// certain environments, so we simply change the default here,
+	// but still respect any override placed in the environment.
+	if os.Getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(1)
+	}
+
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	frontend.LaunchAll()
 
