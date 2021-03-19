@@ -135,11 +135,11 @@ func (c *FConn) AttachBackend(terminator func()) AttachChannels {
 }
 
 func (c *FConn) DetachBackend() {
-	c.detachLock.Lock()
-	defer c.detachLock.Unlock()
 	if config.Virtual.ClearApplicationNames {
 		c.ClearApplicationName()
 	}
+	c.detachLock.Lock()
+	defer c.detachLock.Unlock()
 	c.receiver.AwaitDropRFQChan()
 	if c.detaching != nil {
 		close(c.detaching)

@@ -216,7 +216,9 @@ func (c *BConn) backendRunner(
 
 	c.out <- &pgproto3.AuthenticationOk{}
 
+	c.dbLock.Lock()
 	c.applicationName = params["application_name"]
+	c.dbLock.Unlock()
 
 	clientEncoding := params["client_encoding"]
 	if clientEncoding != "" && clientEncoding != "UTF8" && clientEncoding != "SQL_ASCII" {
@@ -231,8 +233,11 @@ func (c *BConn) backendRunner(
 	frontend.GlobalPreambleLock.RUnlock()
 
 	// send out the local preamble from one connection
+	c.dbLock.Lock()
 	c.db = frontend.WritePool.Pop()
 	c.newDB <- c.db.AttachBackend(c.terminate)
+	c.dbLock.Unlock()
+
 	c.db.ReqPreamble()
 
 	c.rfq()
