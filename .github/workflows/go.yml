@@ -8,7 +8,33 @@ on:
 
 jobs:
 
-  build_and_test:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.18
+
+    - name: Build
+      run: go build -v ./...
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.18
+
+    - name: Test
+      run: go test -v ./...
+
+  lint:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -25,6 +51,3 @@ jobs:
       uses: golangci/golangci-lint-action@v3.1.0
       with:
         version: latest
-
-    - name: Test
-      run: go test -v ./...
