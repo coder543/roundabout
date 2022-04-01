@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgproto3/v2"
+	"github.com/xdg-go/scram"
+	"golang.org/x/exp/slices"
 
 	"github.com/coder543/roundabout/config"
 	"github.com/coder543/roundabout/frontend/preambler"
@@ -160,6 +162,10 @@ func launchConn(wgConn *sync.WaitGroup, dbAddr string, pool *Pool) {
 			defer GlobalPreambleLock.Unlock()
 		}
 	}
+
+	// used for SASL authentication
+	var conversation *scram.ClientConversation
+
 	localPreamble := []pgproto3.BackendMessage{}
 	// drain the ParameterStatus and BackendKeyData messages, looking for RFQ
 	for {
@@ -171,12 +177,15 @@ func launchConn(wgConn *sync.WaitGroup, dbAddr string, pool *Pool) {
 			log.Println("f-receive startup err", err)
 			return
 		}
+
 		switch fmsg := fmsg.(type) {
 		case *pgproto3.ErrorResponse:
 			log.Println(fmsg)
 			return
+
 		case *pgproto3.AuthenticationOk:
 			continue
+
 		case *pgproto3.AuthenticationCleartextPassword:
 			err := frontend.Send(&pgproto3.PasswordMessage{Password: db.Password})
 			if err != nil {
@@ -196,8 +205,58 @@ func launchConn(wgConn *sync.WaitGroup, dbAddr string, pool *Pool) {
 				log.Println("send pass err", err)
 				return
 			}
+
+		case *pgproto3.AuthenticationSASL:
+			if !slices.Contains(fmsg.AuthMechanisms, "SCRAM-SHA-256") {
+				log.Println("unsupported SASL authentication request: ", fmsg.AuthMechanisms)
+				return
+			}
+
+			client, err := scram.SHA256.NewClient(db.Username, db.Password, "")
+			if err != nil {
+				log.Println("scram client err", err)
+				return
+			}
+			conversation = client.NewConversation()
+			initalResponse, err := conversation.Step("")
+			if err != nil {
+				log.Println("scram initial step err", err)
+				return
+			}
+			err = frontend.Send(&pgproto3.SASLInitialResponse{
+				AuthMechanism: "SCRAM-SHA-256",
+				Data:          []byte(initalResponse),
+			})
+			if err != nil {
+				log.Println("send initial sasl err", err)
+				return
+			}
+
+		case *pgproto3.AuthenticationSASLContinue:
+			resp, err := conversation.Step(string(fmsg.Data))
+			if err != nil {
+				log.Println("scram continue step err", err)
+				return
+			}
+
+			err = frontend.Send(&pgproto3.SASLResponse{
+				Data: []byte(resp),
+			})
+			if err != nil {
+				log.Println("send continue sasl err", err)
+				return
+			}
+
+		case *pgproto3.AuthenticationSASLFinal:
+			_, err := conversation.Step(string(fmsg.Data))
+			if err != nil {
+				log.Println("scram final step err", err)
+				return
+			}
+
 		case *pgproto3.ReadyForQuery:
 			goto pushConn
+
 		case *pgproto3.ParameterStatus:
 			// we only want to save some server-specific
 			// preambles that should be constant to the

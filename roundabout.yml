@@ -1,4 +1,3 @@
-
 # this section sets the behavior of archivist that
 # clients will see, as if archivist were any normal
 # postgres server.
@@ -28,7 +27,7 @@ database:
   database_name: pg1
 
   # the address of the database
-  address: "pg1:5432"
+  address: "localhost:5433"
 
   # database credentials
   username: postgres
@@ -39,4 +38,3 @@ database:
 
   # number of connections to be established
   num_conns: 25
-
