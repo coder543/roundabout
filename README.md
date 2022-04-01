@@ -1,4 +1,4 @@
-# Roundabout Postgres Proxy
+# Roundabout Postgres Proxy / Connection Pooler
 
 This is a small postgres proxy that is intended to be an alternative to PgBouncer. It avoids some of the legacy complexity of PgBouncer, like having to pick between session, transaction, or statement modes by automatically detecting transactions and anonymous prepared statements.
 
@@ -17,7 +17,3 @@ psql -h localhost -U postgres # this will let you connect to the database throug
 # License
 
 MIT
-
-```
-
-```
