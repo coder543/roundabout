@@ -1,0 +1,8 @@
+version: '3.0'
+services:
+  pg:
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: please_use_a_real_password_in_prod
+    ports:
+      - "5433:5432"

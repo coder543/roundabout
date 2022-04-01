@@ -4,7 +4,7 @@
 virtual:
   listen: "localhost:5432"
   username: postgres
-  password: abc123
+  password: also_a_bad_password
   database: virtualpg
 
   # this will set the application_name each time a
@@ -31,7 +31,7 @@ database:
 
   # database credentials
   username: postgres
-  password: password
+  password: please_use_a_real_password_in_prod
 
   # the name of the postgres database to use
   database: postgres
