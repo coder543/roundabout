@@ -1,5 +1,5 @@
-# this section sets the behavior of archivist that
-# clients will see, as if archivist were any normal
+# this section sets the behavior of roundabout that
+# clients will see, as if roundabout were any normal
 # postgres server.
 virtual:
   listen: "localhost:5432"
@@ -20,7 +20,7 @@ virtual:
   # put back into the connection pool.
   clear_application_names: true
 
-# this section tells archivist about the postgres
+# this section tells roundabout about the postgres
 # database that it can connect to.
 database:
   # just a general name for the database
